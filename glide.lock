@@ -1,0 +1,12 @@
+hash: 6ebc89bacb5fceef44f9ed21e25ecb80fc15c9a1d2cb466092463453cfebbda8
+updated: 2018-05-20T23:03:19.09764031+08:00
+imports:
+- name: github.com/bitly/go-simplejson
+  version: aabad6e819789e569bd6aabf444c935aa9ba1e44
+- name: github.com/joho/godotenv
+  version: a79fa1e548e2c689c241d10173efd51e5d689d5b
+  subpackages:
+  - autoload
+- name: github.com/julienschmidt/httprouter
+  version: 8c199fb6259ffc1af525cc3ad52ee60ba8359669
+testImports: []
