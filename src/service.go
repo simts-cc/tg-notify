@@ -11,14 +11,14 @@ import (
 
 // Service 服務架構
 type Service struct {
-	Router *httprouter.Router
+	router *httprouter.Router
 }
 
 // NewService 服務實體
 func NewService() *Service {
 	flag.Parse()
 	s := &Service{
-		Router: NewRouter(),
+		router: NewRouter(),
 	}
 	return s
 }
@@ -33,5 +33,5 @@ func (s *Service) Start() {
 
 	port := ":" + os.Getenv("SERVER_PORT")
 
-	http.ListenAndServe(port, s.Router)
+	http.ListenAndServe(port, s.router)
 }

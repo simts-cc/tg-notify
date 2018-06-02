@@ -1,6 +1,11 @@
 package tg
 
 import (
+	"os"
+	"strconv"
+
+	"github.com/golang/glog"
+
 	mux "github.com/julienschmidt/httprouter"
 	"tg.notify/src/handler"
 )
@@ -15,16 +20,24 @@ type Router struct {
 // Routers 路由組
 type Routers []Router
 
-var routers = Routers{
-	Router{
-		Method:  "POST",
-		Pattern: "/v1/message",
-		Handle:  handler.SendMessage,
-	},
-}
-
-// NewRouter 取得 API 路由
+// NewRouter 路由實體
 func NewRouter() *mux.Router {
+	semCount, e := strconv.Atoi(os.Getenv("SERVER_SEM_COUNT"))
+	if e != nil {
+		glog.Fatal(e)
+	}
+	sem := make(chan struct{}, semCount)
+	t := handler.NewTelegram()
+	t.SetSem(&sem)
+
+	routers := Routers{
+		Router{
+			Method:  "POST",
+			Pattern: "/v1/message",
+			Handle:  t.SendMessage,
+		},
+	}
+
 	router := mux.New()
 	for _, route := range routers {
 		router.Handle(route.Method, route.Pattern, route.Handle)

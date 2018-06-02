@@ -10,11 +10,16 @@ import (
 	"os"
 	"strconv"
 
+	"github.com/bitly/go-simplejson"
 	"github.com/golang/glog"
 
-	"github.com/bitly/go-simplejson"
 	"github.com/julienschmidt/httprouter"
 )
+
+// Telegram 架構
+type Telegram struct {
+	sem chan struct{}
+}
 
 // MessageBody 訊息內容
 type MessageBody struct {
@@ -23,37 +28,20 @@ type MessageBody struct {
 	Slient  bool        `json:"disable_notification,bool"`
 }
 
-func (body *MessageBody) send() {
-	json, e := json.Marshal(body)
-	if e != nil {
-		glog.Error(e)
-	}
+// NewTelegram Telegram 實體
+func NewTelegram() *Telegram {
+	return &Telegram{}
+}
 
-	req, e := http.NewRequest("POST", "https://api.telegram.org/bot"+os.Getenv("TG_BOT_TOKEN")+"/sendMessage", bytes.NewBuffer(json))
-	req.Header.Set("Content-Type", "application/json")
-	if e != nil {
-		glog.Error(e)
-	}
-
-	client := &http.Client{}
-	resp, e := client.Do(req)
-	if e != nil {
-		glog.Error(e)
-	}
-	defer func() {
-		_, e = io.Copy(ioutil.Discard, resp.Body)
-		if e != nil {
-			glog.Error(e)
-		}
-		e = resp.Body.Close()
-		if e != nil {
-			glog.Error(e)
-		}
-	}()
+// SetSem 設置 Semaphore
+func (t *Telegram) SetSem(sem *chan struct{}) {
+	t.sem = *sem
 }
 
 // SendMessage 傳送訊息
-func SendMessage(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+func (t *Telegram) SendMessage(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	t.sem <- struct{}{}
+
 	b, e := ioutil.ReadAll(r.Body)
 	defer func() {
 		_, e = io.Copy(ioutil.Discard, r.Body)
@@ -107,11 +95,43 @@ func SendMessage(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	w.Header().Set("Content-Type", "application/json")
 	fmt.Fprint(w, `{"ok":true}`)
 
-	tgBody := MessageBody{
+	json, e := json.Marshal(&MessageBody{
 		chanID,
 		msg,
 		slient,
+	})
+	if e != nil {
+		glog.Error(e)
 	}
 
-	go tgBody.send()
+	go t.Send(json)
+}
+
+// Send 寄出訊息
+func (t *Telegram) Send(json []byte) {
+	defer func() {
+		<-t.sem
+	}()
+
+	req, e := http.NewRequest("POST", "https://api.telegram.org/bot"+os.Getenv("TG_BOT_TOKEN")+"/sendMessage", bytes.NewBuffer(json))
+	req.Header.Set("Content-Type", "application/json")
+	if e != nil {
+		glog.Error(e)
+	}
+
+	client := &http.Client{}
+	resp, e := client.Do(req)
+	if e != nil {
+		glog.Error(e)
+	}
+
+	_, e = io.Copy(ioutil.Discard, resp.Body)
+	if e != nil {
+		glog.Error(e)
+	}
+
+	e = resp.Body.Close()
+	if e != nil {
+		glog.Error(e)
+	}
 }
