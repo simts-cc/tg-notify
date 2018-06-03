@@ -9,16 +9,19 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 
+	"github.com/astaxie/beego/orm"
 	"github.com/bitly/go-simplejson"
 	"github.com/golang/glog"
-
 	"github.com/julienschmidt/httprouter"
+	"tg.notify/src/model"
 )
 
 // Telegram 架構
 type Telegram struct {
-	sem chan struct{}
+	sem *chan struct{}
+	orm *orm.Ormer
 }
 
 // MessageBody 訊息內容
@@ -34,16 +37,35 @@ func NewTelegram() *Telegram {
 }
 
 // SetSem 設置 Semaphore
-func (t *Telegram) SetSem(sem *chan struct{}) {
-	t.sem = *sem
+func (t *Telegram) SetSem(s *chan struct{}) {
+	t.sem = s
+}
+
+// SetOrm 設置 Orm
+func (t *Telegram) SetOrm(o *orm.Ormer) {
+	t.orm = o
 }
 
 // SendMessage 傳送訊息
 func (t *Telegram) SendMessage(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	t.sem <- struct{}{}
+	*t.sem <- struct{}{}
 
+	var res string
 	b, e := ioutil.ReadAll(r.Body)
 	defer func() {
+		headers, e := json.Marshal(r.Header)
+		if e != nil {
+			glog.Error(e)
+		}
+		nr := strings.NewReplacer("\t", "", "\n", "")
+		apilog := model.APILogs{
+			URI:     r.RequestURI,
+			ReqData: nr.Replace(string(b)),
+			ResData: res,
+			Headers: string(headers),
+		}
+		model.APILogsAdd(*t.orm, apilog)
+
 		_, e = io.Copy(ioutil.Discard, r.Body)
 		if e != nil {
 			glog.Error(e)
@@ -71,7 +93,8 @@ func (t *Telegram) SendMessage(w http.ResponseWriter, r *http.Request, _ httprou
 	}
 	channel := os.Getenv("TG_CHAN_" + code)
 	if channel == "" {
-		fmt.Fprint(w, `{"ok":false,"message":"code error."}`)
+		res = `{"ok":false,"message":"code error."}`
+		fmt.Fprint(w, res)
 		return
 	}
 	var chanID interface{}
@@ -93,9 +116,10 @@ func (t *Telegram) SendMessage(w http.ResponseWriter, r *http.Request, _ httprou
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, `{"ok":true}`)
+	res = `{"ok":true}`
+	fmt.Fprint(w, res)
 
-	json, e := json.Marshal(&MessageBody{
+	body, e := json.Marshal(&MessageBody{
 		chanID,
 		msg,
 		slient,
@@ -104,13 +128,13 @@ func (t *Telegram) SendMessage(w http.ResponseWriter, r *http.Request, _ httprou
 		glog.Error(e)
 	}
 
-	go t.Send(json)
+	go t.Send(body)
 }
 
 // Send 寄出訊息
 func (t *Telegram) Send(json []byte) {
 	defer func() {
-		<-t.sem
+		<-*t.sem
 	}()
 
 	req, e := http.NewRequest("POST", "https://api.telegram.org/bot"+os.Getenv("TG_BOT_TOKEN")+"/sendMessage", bytes.NewBuffer(json))

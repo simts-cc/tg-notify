@@ -12,38 +12,8 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// DB 資料連線資訊
-type DB struct {
-	Name     string
-	Host     string
-	Port     string
-	Username string
-	Password string
-	Charset  string
-	MaxIdle  int
-	MaxOpen  int
-}
-
-// Orm 資料庫連線
-type Orm struct {
-	writer *orm.Ormer
-	reader *orm.Ormer
-}
-
-// NewOrmer Orm 連線 實體
-func NewOrmer(db DB) *orm.Ormer {
-	orm.RegisterDriver("mysql", orm.DRMySQL)
-	orm.SetMaxIdleConns(db.Name, db.MaxIdle)
-	orm.SetMaxOpenConns(db.Name, db.MaxOpen)
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=%s", db.Username, db.Password, db.Host, db.Port, db.Name, db.Charset)
-	orm.RegisterDataBase(db.Name, "mysql", dsn)
-	o := orm.NewOrm()
-
-	return &o
-}
-
 // NewOrm Orm 實體
-func NewOrm() *Orm {
+func NewOrm() *orm.Ormer {
 	maxIdle, e := strconv.Atoi(os.Getenv("DB_MAX_IDLE"))
 	if e != nil {
 		glog.Fatal(e)
@@ -52,29 +22,30 @@ func NewOrm() *Orm {
 	if e != nil {
 		glog.Fatal(e)
 	}
-	w := DB{
-		Name:     os.Getenv("DB_NAME"),
-		Host:     os.Getenv("DB_WRITER"),
-		Port:     os.Getenv("DB_PORT"),
-		Username: os.Getenv("DB_USERNAME"),
-		Password: os.Getenv("DB_PASSWORD"),
-		Charset:  os.Getenv("DB_CHARSET"),
-		MaxIdle:  maxIdle,
-		MaxOpen:  maxOpen,
-	}
-	r := DB{
-		Name:     os.Getenv("DB_NAME"),
-		Host:     os.Getenv("DB_WRITER"),
-		Port:     os.Getenv("DB_PORT"),
-		Username: os.Getenv("DB_USERNAME"),
-		Password: os.Getenv("DB_PASSWORD"),
-		Charset:  os.Getenv("DB_CHARSET"),
-		MaxIdle:  maxIdle,
-		MaxOpen:  maxOpen,
-	}
 
-	return &Orm{
-		writer: NewOrmer(w),
-		reader: NewOrmer(r),
-	}
+	dbName := os.Getenv("DB_NAME")
+	dbWriter := os.Getenv("DB_WRITER")
+	dbReader := os.Getenv("DB_READER")
+	dbPort := os.Getenv("DB_PORT")
+	dbUsername := os.Getenv("DB_USERNAME")
+	dbPassword := os.Getenv("DB_PASSWORD")
+	dbCharset := os.Getenv("DB_CHARSET")
+	dbMaxIdle := maxIdle
+	dbMaxOpen := maxOpen
+
+	orm.RegisterDriver("mysql", orm.DRMySQL)
+
+	reader := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=%s", dbUsername, dbPassword, dbReader, dbPort, dbName, dbCharset)
+	orm.RegisterDataBase("default", "mysql", reader)
+	orm.SetMaxIdleConns("default", dbMaxIdle)
+	orm.SetMaxOpenConns("default", dbMaxOpen)
+
+	writer := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=%s", dbUsername, dbPassword, dbWriter, dbPort, dbName, dbCharset)
+	orm.RegisterDataBase("writer", "mysql", writer)
+	orm.SetMaxIdleConns("writer", dbMaxIdle)
+	orm.SetMaxOpenConns("writer", dbMaxOpen)
+
+	o := orm.NewOrm()
+
+	return &o
 }
