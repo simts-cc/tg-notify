@@ -12,6 +12,7 @@ import (
 // Service 服務架構
 type Service struct {
 	router *httprouter.Router
+	orm    *Orm
 }
 
 // NewService 服務實體
@@ -19,6 +20,7 @@ func NewService() *Service {
 	flag.Parse()
 	s := &Service{
 		router: NewRouter(),
+		orm:    NewOrm(),
 	}
 	return s
 }
