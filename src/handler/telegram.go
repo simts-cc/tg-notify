@@ -3,7 +3,6 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -48,92 +47,91 @@ func (t *Telegram) SetOrm(o *orm.Ormer) {
 
 // SendMessage 傳送訊息
 func (t *Telegram) SendMessage(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	*t.sem <- struct{}{}
-
-	var res string
-	b, e := ioutil.ReadAll(r.Body)
+	var (
+		reqBody []byte
+		res     []byte
+		chanID  interface{}
+		msg     string
+		slient  bool
+	)
+	// 紀錄
 	defer func() {
-		headers, e := json.Marshal(r.Header)
-		if e != nil {
-			glog.Error(e)
-		}
 		nr := strings.NewReplacer("\t", "", "\n", "")
+		header, _ := json.Marshal(r.Header)
 		apilog := model.APILogs{
 			URI:     r.RequestURI,
-			ReqData: nr.Replace(string(b)),
-			ResData: res,
-			Headers: string(headers),
+			ReqData: nr.Replace(string(reqBody)),
+			ResData: string(res),
+			Headers: string(header),
 		}
 		model.APILogsAdd(*t.orm, apilog)
-
-		_, e = io.Copy(ioutil.Discard, r.Body)
-		if e != nil {
-			glog.Error(e)
-		}
-		e = r.Body.Close()
-		if e != nil {
-			glog.Error(e)
-		}
 	}()
+
+	reqBody, e := ioutil.ReadAll(r.Body)
 	if e != nil {
 		http.Error(w, e.Error(), 500)
 		return
 	}
 
 	// REQUEST 轉 JSON
-	req, e := simplejson.NewJson(b)
+	reqData, e := simplejson.NewJson(reqBody)
 	if e != nil {
 		glog.Error(e)
 	}
 
 	// 取得 頻道ＩＤ
-	code, e := req.Get("code").String()
+	code, e := reqData.Get("code").String()
 	if e != nil {
-		glog.Error(e)
+		res = APIErrorResponse{Ok: false, Message: "code error."}.Response(&w)
+		return
 	}
 	channel := os.Getenv("TG_CHAN_" + code)
 	if channel == "" {
-		res = `{"ok":false,"message":"code error."}`
-		fmt.Fprint(w, res)
+		res = APIErrorResponse{Ok: false, Message: "code error."}.Response(&w)
 		return
 	}
-	var chanID interface{}
 	chanID, e = strconv.Atoi(channel)
 	if e != nil {
 		chanID = channel
 	}
 
 	// 取得 訊息內容
-	msg, e := req.Get("message").String()
-	if e != nil {
-		glog.Error(e)
+	msg, e = reqData.Get("message").String()
+	if e != nil || msg == "" {
+		res = APIErrorResponse{Ok: false, Message: "message error."}.Response(&w)
+		return
 	}
 
 	// 取得 安靜狀態
-	slient, e := req.Get("slient").Bool()
-	if e != nil {
-		glog.Error(e)
-	}
+	slient, _ = reqData.Get("slient").Bool()
 
-	w.Header().Set("Content-Type", "application/json")
-	res = `{"ok":true}`
-	fmt.Fprint(w, res)
+	res = APIResponse{Ok: true}.Response(&w)
 
-	body, e := json.Marshal(&MessageBody{
-		chanID,
-		msg,
-		slient,
+	tgBody, _ := json.Marshal(&MessageBody{
+		ChatID:  chanID,
+		Message: msg,
+		Slient:  slient,
 	})
-	if e != nil {
-		glog.Error(e)
-	}
 
-	go t.Send(body)
+	*t.sem <- struct{}{}
+	go t.Send(tgBody)
 }
 
 // Send 寄出訊息
 func (t *Telegram) Send(json []byte) {
+	var resp *http.Response
+
 	defer func() {
+		_, e := io.Copy(ioutil.Discard, resp.Body)
+		if e != nil {
+			glog.Error(e)
+		}
+
+		e = resp.Body.Close()
+		if e != nil {
+			glog.Error(e)
+		}
+
 		<-*t.sem
 	}()
 
@@ -144,17 +142,7 @@ func (t *Telegram) Send(json []byte) {
 	}
 
 	client := &http.Client{}
-	resp, e := client.Do(req)
-	if e != nil {
-		glog.Error(e)
-	}
-
-	_, e = io.Copy(ioutil.Discard, resp.Body)
-	if e != nil {
-		glog.Error(e)
-	}
-
-	e = resp.Body.Close()
+	resp, e = client.Do(req)
 	if e != nil {
 		glog.Error(e)
 	}
